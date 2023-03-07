@@ -727,6 +727,11 @@ struct kvm_vcpu_arch {
 	unsigned long cr0_guest_owned_bits;
 	unsigned long cr2;
 	unsigned long cr3;
+	/*
+	 * CR3 non-address feature control bits.
+	 * Guest CR3 may contain any of those bits at runtime.
+	 */
+	u64 cr3_ctrl_bits;
 	unsigned long cr4;
 	unsigned long cr4_guest_owned_bits;
 	unsigned long cr4_guest_rsvd_bits;

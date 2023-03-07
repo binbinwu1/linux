@@ -3812,7 +3812,13 @@ static int mmu_alloc_shadow_roots(struct kvm_vcpu *vcpu)
 	hpa_t root;
 
 	root_pgd = kvm_mmu_get_guest_pgd(vcpu, mmu);
-	root_gfn = root_pgd >> PAGE_SHIFT;
+	/*
+	 * Guest PGD can be CR3 or EPTP (for nested EPT case). CR3 may contain
+	 * additional control bits (e.g. LAM control bits). To be generic,
+	 * unconditionally strip non-address bits when computing the GFN since
+	 * the guest PGD has already been checked for validity.
+	 */
+	root_gfn = (root_pgd & __PT_BASE_ADDR_MASK) >> PAGE_SHIFT;
 
 	if (mmu_check_root(vcpu, root_gfn))
 		return 1;
