@@ -701,6 +701,7 @@ static __always_inline int __linearize(struct x86_emulate_ctxt *ctxt,
 	*max_size = 0;
 	switch (mode) {
 	case X86EMUL_MODE_PROT64:
+		ctxt->ops->untag_addr(ctxt, &la, flags);
 		*linear = la;
 		va_bits = ctxt_virt_addr_bits(ctxt);
 		if (!__is_canonical_address(la, va_bits))
@@ -771,8 +772,12 @@ static inline int assign_eip(struct x86_emulate_ctxt *ctxt, ulong dst)
 
 	if (ctxt->op_bytes != sizeof(unsigned long))
 		addr.ea = dst & ((1UL << (ctxt->op_bytes << 3)) - 1);
+	/*
+	 * LAM doesn't apply to addresses that specify the targets of jump and
+	 * call instructions.
+	 */
 	rc = __linearize(ctxt, addr, &max_size, 1, ctxt->mode, &linear,
-			 X86EMUL_F_FETCH);
+			 X86EMUL_F_FETCH | X86EMUL_F_SKIPLAM);
 	if (rc == X86EMUL_CONTINUE)
 		ctxt->_eip = addr.ea;
 	return rc;
@@ -907,9 +912,11 @@ static int __do_insn_fetch_bytes(struct x86_emulate_ctxt *ctxt, int op_size)
 	 * __linearize is called with size 0 so that it does not do any
 	 * boundary check itself.  Instead, we use max_size to check
 	 * against op_size.
+	 *
+	 * LAM doesn't apply to addresses used for instruction fetches.
 	 */
 	rc = __linearize(ctxt, addr, &max_size, 0, ctxt->mode, &linear,
-			 X86EMUL_F_FETCH);
+			 X86EMUL_F_FETCH | X86EMUL_F_SKIPLAM);
 	if (unlikely(rc != X86EMUL_CONTINUE))
 		return rc;
 
@@ -3442,8 +3449,11 @@ static int em_invlpg(struct x86_emulate_ctxt *ctxt)
 {
 	int rc;
 	ulong linear;
+	unsigned max_size;
 
-	rc = linearize(ctxt, ctxt->src.addr.mem, 1, false, &linear);
+	/* LAM doesn't apply to invlpg */
+	rc = __linearize(ctxt, ctxt->src.addr.mem, &max_size, 1, ctxt->mode,
+		&linear, X86EMUL_F_SKIPLAM);
 	if (rc == X86EMUL_CONTINUE)
 		ctxt->ops->invlpg(ctxt, linear);
 	/* Disable writeback. */
