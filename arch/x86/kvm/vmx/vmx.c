@@ -8133,6 +8133,77 @@ static void vmx_vm_destroy(struct kvm *kvm)
 	free_pages((unsigned long)kvm_vmx->pid_table, vmx_get_pid_table_order(kvm));
 }
 
+#define LAM_S57_EN_MASK (X86_CR4_LAM_SUP | X86_CR4_LA57)
+static int lam_sign_extend_bit(struct kvm_vcpu *vcpu, gva_t addr)
+{
+	u64 cr3, cr4;
+
+	/*
+	 * The LAM identification of a pointer as user or supervisor is
+	 * based solely on the value of pointer bit 63.
+	 */
+	if (!(addr >> 63)) {
+		cr3 = kvm_read_cr3(vcpu);
+		if (cr3 & X86_CR3_LAM_U57)
+			return 56;
+		if (cr3 & X86_CR3_LAM_U48)
+			return 47;
+	} else {
+		cr4 = kvm_read_cr4_bits(vcpu, LAM_S57_EN_MASK);
+		if (cr4 == LAM_S57_EN_MASK)
+			return 56;
+		if (cr4 & X86_CR4_LAM_SUP)
+			return 47;
+	}
+	return -1;
+}
+
+/*
+ * Only called in 64-bit mode.
+ *
+ * LAM has a modified canonical check when applicable:
+ * LAM_S48                : [ 1 ][ metadata ][ 1 ]
+ *                            63               47
+ * LAM_U48                : [ 0 ][ metadata ][ 0 ]
+ *                            63               47
+ * LAM_S57                : [ 1 ][ metadata ][ 1 ]
+ *                            63               56
+ * LAM_U57 + 5-lvl paging : [ 0 ][ metadata ][ 0 ]
+ *                            63               56
+ * LAM_U57 + 4-lvl paging : [ 0 ][ metadata ][ 0...0 ]
+ *                            63               56..47
+ *
+ * Untag the metadata bits by sign-extending the value of bit 47 (LAM48) or
+ * bit 56 (LAM57). The resulting address after untag isn't guaranteed to be
+ * canonical. Callers should perform the original canonical check and raise
+ * #GP/#SS if the address is non-canonical.
+ *
+ * Note that KVM masks the metadata in addresses, performs the (original)
+ * canonicality checking and then walks page table. This is slightly
+ * different from hardware behavior but achieves the same effect.
+ * Specifically, if LAM is enabled, the processor performs a modified
+ * canonicality checking where the metadata are ignored instead of
+ * masked. After the modified canonicality checking, the processor masks
+ * the metadata before passing addresses for paging translation.
+ */
+void vmx_untag_addr(struct kvm_vcpu *vcpu, gva_t *gva, u32 flags)
+{
+	int sign_ext_bit;
+
+	/*
+	 * Check LAM_U48 in cr3_ctrl_bits to avoid guest_cpuid_has().
+	 * If not set, vCPU doesn't supports LAM.
+	 */
+	if (!(vcpu->arch.cr3_ctrl_bits & X86_CR3_LAM_U48) ||
+	    (flags & X86EMUL_F_SKIPLAM) || WARN_ON_ONCE(!is_64_bit_mode(vcpu)))
+		return;
+
+	sign_ext_bit = lam_sign_extend_bit(vcpu, *gva);
+	if (sign_ext_bit > 0)
+		*gva = (sign_extend64(*gva, sign_ext_bit) & ~BIT_ULL(63)) |
+		       (*gva & BIT_ULL(63));
+}
+
 static struct kvm_x86_ops vmx_x86_ops __initdata = {
 	.name = KBUILD_MODNAME,
 
@@ -8180,6 +8251,8 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 	.get_rflags = vmx_get_rflags,
 	.set_rflags = vmx_set_rflags,
 	.get_if_flag = vmx_get_if_flag,
+
+	.untag_addr = vmx_untag_addr,
 
 	.flush_tlb_all = vmx_flush_tlb_all,
 	.flush_tlb_current = vmx_flush_tlb_current,

@@ -1588,6 +1588,8 @@ struct kvm_x86_ops {
 	void (*set_rflags)(struct kvm_vcpu *vcpu, unsigned long rflags);
 	bool (*get_if_flag)(struct kvm_vcpu *vcpu);
 
+	void (*untag_addr)(struct kvm_vcpu *vcpu, gva_t *gva, u32 flags);
+
 	void (*flush_tlb_all)(struct kvm_vcpu *vcpu);
 	void (*flush_tlb_current)(struct kvm_vcpu *vcpu);
 	int  (*flush_remote_tlbs)(struct kvm *kvm);
