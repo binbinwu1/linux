@@ -4806,6 +4806,12 @@ static int svm_vm_init(struct kvm *kvm)
 	return 0;
 }
 
+static gva_t svm_get_untagged_addr(struct kvm_vcpu *vcpu, gva_t gva,
+			           unsigned int flags)
+{
+	return gva;
+}
+
 static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.name = KBUILD_MODNAME,
 
@@ -4936,6 +4942,8 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 
 	.vcpu_deliver_sipi_vector = svm_vcpu_deliver_sipi_vector,
 	.vcpu_get_apicv_inhibit_reasons = avic_vcpu_get_apicv_inhibit_reasons,
+
+	.get_untagged_addr = svm_get_untagged_addr,
 };
 
 /*
