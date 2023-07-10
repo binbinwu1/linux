@@ -8134,7 +8134,34 @@ static void vmx_vm_destroy(struct kvm *kvm)
 gva_t vmx_get_untagged_addr(struct kvm_vcpu *vcpu, gva_t gva,
 			    unsigned int flags)
 {
-	return gva;
+	unsigned long cr3_bits;
+	int lam_bit;
+
+	if (flags & (X86EMUL_F_FETCH | X86EMUL_F_BRANCH | X86EMUL_F_IMPLICIT |
+	             X86EMUL_F_INVLPG))
+		return gva;
+
+	if (!is_64_bit_mode(vcpu))
+		return gva;
+
+	/*
+	 * Bit 63 determines if the address should be treated as user address
+	 * or a supervisor address.
+	 */
+	if (!(gva & BIT_ULL(63))) {
+		cr3_bits = kvm_get_active_lam_bits(vcpu);
+		if (!(cr3_bits & (X86_CR3_LAM_U57 | X86_CR3_LAM_U48)))
+			return gva;
+
+		/* LAM_U48 is ignored if LAM_U57 is set. */
+		lam_bit = cr3_bits & X86_CR3_LAM_U57 ? 56 : 47;
+	} else {
+		if (!kvm_is_cr4_bit_set(vcpu, X86_CR4_LAM_SUP))
+			return gva;
+
+		lam_bit = kvm_is_cr4_bit_set(vcpu, X86_CR4_LA57) ? 56 : 47;
+	}
+	return (sign_extend64(gva, lam_bit) & ~BIT_ULL(63)) | (gva & BIT_ULL(63));
 }
 
 static struct kvm_x86_ops vmx_x86_ops __initdata = {
